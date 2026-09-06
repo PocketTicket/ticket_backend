@@ -20,7 +20,6 @@ import static com.example.jooq.generated.Tables.PRODUCTS;
 import static org.jooq.impl.DSL.multiset;
 import static org.jooq.impl.DSL.select;
 
-// INFO - only communication with database (e.g. SQL's). Speaks models, never DTOs.
 @ApplicationScoped
 public class OrderRepository {
 

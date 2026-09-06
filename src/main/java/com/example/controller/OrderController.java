@@ -17,7 +17,6 @@ import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 
-// INFO - only receive HTTP requests and return HTTP responses
 @Path("/orders")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)

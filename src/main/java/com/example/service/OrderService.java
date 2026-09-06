@@ -23,8 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-// INFO - takes DTOs from the controller, applies business logic, talks to the
-// repositories in models, and converts the result back into a safe DTO.
 @ApplicationScoped
 @Transactional
 public class OrderService {

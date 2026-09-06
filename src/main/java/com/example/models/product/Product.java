@@ -2,7 +2,6 @@ package com.example.models.product;
 
 import java.math.BigDecimal;
 
-// INFO - domain model, mirrors a row of products.
 // TODO ADD A PRODUCT IMAGE MAYBE??
 public record Product(
         int productId,

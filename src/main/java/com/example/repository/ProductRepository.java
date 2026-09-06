@@ -11,7 +11,6 @@ import java.util.List;
 import static com.example.jooq.generated.Tables.ORDER_ITEMS;
 import static com.example.jooq.generated.Tables.PRODUCTS;
 
-// INFO - only communication with database (e.g. SQL's). Speaks models, never DTOs.
 @ApplicationScoped
 public class ProductRepository {
     @Inject

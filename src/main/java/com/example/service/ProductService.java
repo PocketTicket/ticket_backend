@@ -14,8 +14,6 @@ import jakarta.transaction.Transactional;
 
 import java.util.List;
 
-// INFO - takes DTOs from the controller, applies business logic, talks to the
-// repository in models, and converts the result back into a safe DTO.
 @ApplicationScoped
 @Transactional
 public class ProductService {

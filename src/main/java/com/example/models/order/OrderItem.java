@@ -2,7 +2,6 @@ package com.example.models.order;
 
 import java.math.BigDecimal;
 
-// INFO - domain model, mirrors a row of order_items. Knows nothing about HTTP or DTOs.
 public record OrderItem(
         int orderItemId,
         int productId,
