@@ -2,62 +2,89 @@ package com.example.controller;
 
 import com.example.dto.order.OrderRequest;
 import com.example.dto.order.OrderResponse;
-import com.example.models.order.Order;
 import com.example.service.OrderService;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.*;
+import jakarta.validation.Valid;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.PATCH;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 
 // INFO - only receive HTTP requests and return HTTP responses
+@Path("/orders")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
 public class OrderController {
     @Inject
     OrderService orderService;
 
-
     /**
      * Gets all orders. (This is only for the admin panel)
-     * @return a list of all Orders without item describtion
+     *
+     * @return a list of all orders
      */
     @GET
-    public List<Order> getOrders(){
+    public List<OrderResponse> getOrders() {
         return orderService.getOrders();
     }
 
-
     /**
-     * Gets all orders for a specific user
-     * @param userId: The ID of the user of whom to retrieve orders
-     * @return a list of all Orders for the specified user with item description
+     * Gets all orders for a specific user.
+     *
+     * @param userId the ID of the user of whom to retrieve orders
      */
     @GET
-    @Path("/{userId}")
-    public List<Order> getOrdersByUId(@PathParam("userId") int userId){
-        return orderService.getOrderByUId(userId);
+    @Path("/user/{userId}")
+    public List<OrderResponse> getOrdersByUserId(@PathParam("userId") int userId) {
+        return orderService.getOrdersByUserId(userId);
     }
 
-
     /**
-     * Gets a specific order by its ID
-     * @param orderId: The ID of the order
-     * @return an Order
+     * Gets a specific order by its ID.
+     *
+     * @return the order, or 404 if it does not exist
      */
     @GET
     @Path("/{orderId}")
-    public Order getOrderById(@PathParam("orderId") int orderId){
+    public OrderResponse getOrderById(@PathParam("orderId") int orderId) {
         return orderService.getOrderById(orderId);
     }
 
-
-    // sets the paymentdate to LocalDateTime.now().plusDays(7)
+    /**
+     * Places an order. The total and the item prices are calculated server-side;
+     * the payment due date is set to seven days from now.
+     *
+     * @return 201 with the stored order, 404 for an unknown product, 409 if stock ran out
+     */
     @POST
-    public OrderResponse createOrder(OrderRequest request){
-        return orderService.createOrder(request);
+    public Response createOrder(@Valid OrderRequest request) {
+        OrderResponse created = orderService.createOrder(request);
+        return Response.status(Response.Status.CREATED).entity(created).build();
     }
 
+    /**
+     * Records the incoming bank transfer for an order. (This is only for the admin panel)
+     */
+    @PATCH
+    @Path("/{orderId}/payment")
+    public OrderResponse markOrderAsPaid(@PathParam("orderId") int orderId) {
+        return orderService.markOrderAsPaid(orderId);
+    }
 
-    @PUT
-    public OrderResponse deleteOrderById(int orderId){
-        return orderService.deleteOrderById(orderId);
+    /**
+     * Cancels an order and releases its reserved tickets. Orders are cancelled,
+     * never deleted, so the history stays intact.
+     */
+    @PATCH
+    @Path("/{orderId}/cancellation")
+    public OrderResponse cancelOrderById(@PathParam("orderId") int orderId) {
+        return orderService.cancelOrderById(orderId);
     }
 }

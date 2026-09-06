@@ -1,18 +1,17 @@
 package com.example.models.order;
 
-import com.example.dto.order.OrderItemRequest;
-
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// INFO - just an object
+// INFO - domain model, mirrors a row of orders plus its items.
 public record Order(
         int orderId,
         int userId,
-        List<OrderItemRequest> items,
-        double total,
+        List<OrderItem> items,
+        BigDecimal totalAmount,
         LocalDateTime orderDate,
-        LocalDateTime dueDate,
+        LocalDateTime paymentDueDate,
         LocalDateTime paymentDate,
         OrderStatus status
 ) { }

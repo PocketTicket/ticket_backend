@@ -2,7 +2,7 @@ package com.example.models.order;
 
 public enum OrderStatus {
     ORDERED,
-    PAYED,
+    PAID,
     DELIVERED,
     REVOKED,
     CANCELLED

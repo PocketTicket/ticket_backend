@@ -1,73 +1,107 @@
 package com.example.repository;
 
-import com.example.dto.product.ProductCreateRequest;
-import com.example.dto.product.ProductUpdateRequest;
 import com.example.models.product.Product;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 
-import java.math.BigDecimal;
 import java.util.List;
 
-import static com.example.jooq.generated.Tables.*;
+import static com.example.jooq.generated.Tables.ORDER_ITEMS;
+import static com.example.jooq.generated.Tables.PRODUCTS;
 
+// INFO - only communication with database (e.g. SQL's). Speaks models, never DTOs.
 @ApplicationScoped
 public class ProductRepository {
     @Inject
     DSLContext jooq;
 
-    public boolean addProduct(Product product){
-        return jooq.insertInto(PRODUCTS)
-                .set(PRODUCTS.PRODUCT_NAME, product.productName())
-                .set(PRODUCTS.PRODUCT_DESCRIPTION, product.productDescription())
-                .set(PRODUCTS.PRODUCT_PRICE, BigDecimal.valueOf(product.productPrice()))
-                .set(PRODUCTS.PRODUCT_STOCK, product.productStock())
-                .execute() > 0;
-    }
-
-
-    public List<Product> getProducts(){
-        return jooq.select()
+    public List<Product> getProducts() {
+        return jooq.select(PRODUCTS.fields())
                 .from(PRODUCTS)
-                .fetchInto(Product.class);
+                .orderBy(PRODUCTS.PRODUCT_ID)
+                .fetch(ProductRepository::toProduct);
     }
 
-
-    public Product getProductById(int productId){
-        return jooq.select()
+    public Product getProductById(int productId) {
+        return jooq.select(PRODUCTS.fields())
                 .from(PRODUCTS)
                 .where(PRODUCTS.PRODUCT_ID.eq(productId))
-                .fetchOneInto(Product.class);
+                .fetchOne(ProductRepository::toProduct);
     }
 
-
-    public Product createProduct(ProductCreateRequest request){
+    /** The productId of the given model is ignored; the database assigns it. */
+    public Product createProduct(Product product) {
         return jooq.insertInto(PRODUCTS)
-                .set(PRODUCTS.PRODUCT_NAME, request.productName())
-                .set(PRODUCTS.PRODUCT_DESCRIPTION, request.productDescription())
-                .set(PRODUCTS.PRODUCT_PRICE, BigDecimal.valueOf(request.productPrice()))
-                .set(PRODUCTS.PRODUCT_STOCK, request.productStock())
+                .set(PRODUCTS.PRODUCT_NAME, product.name())
+                .set(PRODUCTS.PRODUCT_DESCRIPTION, product.description())
+                .set(PRODUCTS.PRODUCT_PRICE, product.price())
+                .set(PRODUCTS.PRODUCT_STOCK, product.stock())
                 .returning()
-                .fetchOneInto(Product.class);
+                .fetchOne(ProductRepository::toProduct);
     }
 
-
-    public Product updateProductById(int productId, ProductUpdateRequest request){
+    /** @return the updated product, or null if no product has that id. */
+    public Product updateProduct(Product product) {
         return jooq.update(PRODUCTS)
-                .set(PRODUCTS.PRODUCT_NAME, request.productName())
-                .set(PRODUCTS.PRODUCT_DESCRIPTION, request.productDescription())
-                .set(PRODUCTS.PRODUCT_PRICE, BigDecimal.valueOf(request.productPrice()))
-                .set(PRODUCTS.PRODUCT_STOCK, request.productStock())
-                .where(PRODUCTS.PRODUCT_ID.eq(productId))
+                .set(PRODUCTS.PRODUCT_NAME, product.name())
+                .set(PRODUCTS.PRODUCT_DESCRIPTION, product.description())
+                .set(PRODUCTS.PRODUCT_PRICE, product.price())
+                .set(PRODUCTS.PRODUCT_STOCK, product.stock())
+                .where(PRODUCTS.PRODUCT_ID.eq(product.productId()))
                 .returning()
-                .fetchOneInto(Product.class);
+                .fetchOne(ProductRepository::toProduct);
     }
 
-
-    public boolean deleteProductById(int productId){
+    public boolean deleteProductById(int productId) {
         return jooq.deleteFrom(PRODUCTS)
                 .where(PRODUCTS.PRODUCT_ID.eq(productId))
                 .execute() > 0;
+    }
+
+    /**
+     * A product that appears in any order must not be deleted, otherwise the
+     * order history loses its meaning. The FK enforces this too, but checking
+     * up front lets the service answer with a proper 409 instead of a 500.
+     */
+    public boolean isReferencedByOrderItem(int productId) {
+        return jooq.fetchExists(
+                jooq.selectOne()
+                        .from(ORDER_ITEMS)
+                        .where(ORDER_ITEMS.ORDER_ITEM_PRODUCT_ID.eq(productId))
+        );
+    }
+
+    /**
+     * Reserves stock atomically: the WHERE clause makes the check and the
+     * decrement a single statement, so two people ordering the last ticket at
+     * the same time cannot both succeed.
+     *
+     * @return false if there was not enough stock left.
+     */
+    public boolean decreaseStock(int productId, int quantity) {
+        return jooq.update(PRODUCTS)
+                .set(PRODUCTS.PRODUCT_STOCK, PRODUCTS.PRODUCT_STOCK.minus(quantity))
+                .where(PRODUCTS.PRODUCT_ID.eq(productId))
+                .and(PRODUCTS.PRODUCT_STOCK.ge(quantity))
+                .execute() > 0;
+    }
+
+    public void increaseStock(int productId, int quantity) {
+        jooq.update(PRODUCTS)
+                .set(PRODUCTS.PRODUCT_STOCK, PRODUCTS.PRODUCT_STOCK.plus(quantity))
+                .where(PRODUCTS.PRODUCT_ID.eq(productId))
+                .execute();
+    }
+
+    private static Product toProduct(Record record) {
+        return new Product(
+                record.get(PRODUCTS.PRODUCT_ID),
+                record.get(PRODUCTS.PRODUCT_NAME),
+                record.get(PRODUCTS.PRODUCT_DESCRIPTION),
+                record.get(PRODUCTS.PRODUCT_PRICE),
+                record.get(PRODUCTS.PRODUCT_STOCK)
+        );
     }
 }

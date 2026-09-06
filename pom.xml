@@ -59,9 +59,13 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-orm-panache</artifactId>
         </dependency>
+        <!-- rest-jackson, not plain jackson: quarkus-jackson only configures the
+             ObjectMapper, it does not register the JSON body reader/writer that
+             Jakarta REST needs. Without it every POST answers 415 and every
+             response body is the record's toString(). -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-jackson</artifactId>
+            <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>

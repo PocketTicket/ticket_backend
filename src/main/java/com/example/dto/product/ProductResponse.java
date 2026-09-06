@@ -1,10 +1,9 @@
-package com.example.models.product;
+package com.example.dto.product;
 
 import java.math.BigDecimal;
 
-// INFO - domain model, mirrors a row of products.
-// TODO ADD A PRODUCT IMAGE MAYBE??
-public record Product(
+// INFO - outbound only.
+public record ProductResponse(
         int productId,
         String name,
         String description,

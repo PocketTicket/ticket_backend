@@ -2,17 +2,18 @@ package com.example.dto.order;
 
 import com.example.models.order.OrderStatus;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Date;
 import java.util.List;
 
-// INFO - just an object
+// INFO - outbound only.
 public record OrderResponse(
         int orderId,
         int userId,
-        List<OrderItemRequest> items,
-        double total,
+        List<OrderItemResponse> items,
+        BigDecimal total,
         LocalDateTime orderDate,
-        LocalDateTime dueDate,
+        LocalDateTime paymentDueDate,
+        LocalDateTime paymentDate,
         OrderStatus status
 ) { }
