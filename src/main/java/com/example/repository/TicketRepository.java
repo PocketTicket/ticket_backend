@@ -20,7 +20,6 @@ public class TicketRepository {
     /** @return the ticket with its order status and event, or null if the code belongs to no ticket. */
     public TicketEntry getTicketEntry(String code) {
         return jooq.select(
-                        TICKETS.TICKET_CODE,
                         ORDERS.ORDER_STATUS,
                         TICKETS.TICKET_USED_AT,
                         PRODUCTS.PRODUCT_NAME,
@@ -31,12 +30,11 @@ public class TicketRepository {
                 .join(PRODUCTS).on(PRODUCTS.PRODUCT_ID.eq(TICKETS.TICKET_PRODUCT_ID))
                 .where(TICKETS.TICKET_CODE.eq(code))
                 .fetchOne(record -> new TicketEntry(
-                        record.value1(),
-                        OrderStatus.PAID.name().equals(record.value2()),
+                        OrderStatus.PAID.name().equals(record.value1()),
+                        record.value2(),
                         record.value3(),
                         record.value4(),
-                        record.value5(),
-                        record.value6()));
+                        record.value5()));
     }
 
     /**

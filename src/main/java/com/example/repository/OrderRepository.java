@@ -166,6 +166,7 @@ public class OrderRepository {
                         ORDERS.ORDER_PAYMENT_DUE_AT,
                         ORDERS.ORDER_PAID_AT,
                         USERS.USER_ID,
+                        USERS.USER_SSO_PROVIDER,
                         USERS.USER_SSO_SUBJECT,
                         USERS.USER_EMAIL,
                         USERS.USER_FIRST_NAME,

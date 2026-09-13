@@ -2,40 +2,39 @@ package com.example.security;
 
 import com.example.exception.UnauthorizedException;
 import com.example.models.user.User;
-import com.example.repository.UserRepository;
+import com.example.repository.SessionRepository;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.core.Cookie;
 import jakarta.ws.rs.core.HttpHeaders;
 
+import java.time.LocalDateTime;
+
 /**
- * The customer who sent the current request. This is the only class that knows how an
- * SSO login looks, so connecting the SSO later means changing this class and nothing else.
+ * The customer who sent the current request, identified by the session cookie that
+ * AuthController sets after the login via IServ or Moodle.
  */
 @RequestScoped
 public class CurrentUser {
+
+    public static final String SESSION_COOKIE = "ticket_session";
+
     @Inject
     HttpHeaders headers;
 
     @Inject
-    UserRepository userRepository;
+    SessionRepository sessionRepository;
 
     /**
-     * Stores the user on their first request and keeps email and names in sync
-     * with what the SSO reports afterwards.
-     *
-     * @throws UnauthorizedException if nobody is logged in
+     * @throws UnauthorizedException if nobody is logged in or the session has expired
      */
     public User get() {
-        // TODO SSO: stand-in until the SSO is known. Anyone can send these headers,
-        //  so they must be replaced by the claims of the verified SSO token.
-        String subject = headers.getHeaderString("X-User-Subject");
-        String email = headers.getHeaderString("X-User-Email");
-        String firstName = headers.getHeaderString("X-User-First-Name");
-        String lastName = headers.getHeaderString("X-User-Last-Name");
+        Cookie cookie = headers.getCookies().get(SESSION_COOKIE);
+        User user = cookie == null ? null : sessionRepository.getUserBySessionToken(cookie.getValue(), LocalDateTime.now());
 
-        if (subject == null || email == null || firstName == null || lastName == null) {
+        if (user == null) {
             throw new UnauthorizedException("You have to be logged in");
         }
-        return userRepository.saveUser(new User(0, subject, email, firstName, lastName));
+        return user;
     }
 }

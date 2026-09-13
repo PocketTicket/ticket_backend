@@ -2,7 +2,6 @@ package com.example.models.admin;
 
 /** A login of the admin login form: an admin or the shared door staff account. Neither comes from the SSO. */
 public record Admin(
-        int adminId,
         String username,
         AdminRole role,
         // bcrypt hash, never the password itself

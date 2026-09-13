@@ -1,6 +1,10 @@
+# Starts database and backend: docker compose up -d
+# The first start builds the backend image; after code changes: docker compose up -d --build
+# All settings come from .env, see .env.example and README.md.
 services:
   db:
     image: postgres:18-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -8,12 +12,32 @@ services:
     volumes:
       - db:/var/lib/postgresql
     ports:
-      - 5432:5432
+      # Only reachable from this machine, for ./mvnw quarkus:dev and local builds
+      - 127.0.0.1:5432:5432
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  backend:
+    build: .
+    image: ticket-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside docker compose the database is reachable as "db", not as localhost
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+    ports:
+      - 8080:8080
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fs http://localhost:8080/q/health/ready > /dev/null" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   db:

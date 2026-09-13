@@ -1,5 +1,7 @@
+# The image is built from the sources (see Dockerfile). Everything else, especially .env
+# with its secrets, stays out of the build.
 *
-!target/*-runner
-!target/*-runner.jar
-!target/lib/*
-!target/quarkus-app/*
+!.mvn
+!mvnw
+!pom.xml
+!src

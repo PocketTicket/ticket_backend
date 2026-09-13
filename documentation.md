@@ -5,6 +5,7 @@
 Client JSON -> Controller (DTO) -> Service (DTO <-> Model, business rules) ->
 Repository (Model, SQL via jOOQ) -> Database, and back the same way. Controllers never
 see a model, repositories never see a DTO; the conversion happens in `com.example.mapper`.
+Only the enums of `com.example.models` (e.g. `OrderStatus`) are used by DTOs too.
 
 ## Flow
 
@@ -87,9 +88,9 @@ is still unused, so two scanners at the same moment cannot both admit the same t
 
 ## Logins
 
-- **Customers** log in via the SSO, which provides email, first name and last name. On
-  their first request they are stored in `users`, identified by the SSO subject; email and
-  names are refreshed on every later one.
+- **Customers** log in via IServ or Moodle (see Customer login below), which provide email,
+  first name and last name. They are stored in `users` on their first login, identified by
+  provider and subject; email and names are refreshed on every later login.
 - **Admins** do not come from the SSO. They log in with username and password:
   `POST /admin/login` with the form fields `username` and `password`
   (`application/x-www-form-urlencoded`) answers 200 and sets an encrypted, http-only
@@ -126,13 +127,43 @@ can change the password with `PUT /admin/door-staff-password` `{ "password": "..
 (8 to 72 characters), e.g. before the event or if the login spread further than intended.
 A login stays valid for 30 minutes without requests; every scan renews it.
 
-**Not done yet:** until the SSO is connected, `security/CurrentUser` reads the customer
-from the headers `X-User-Subject`, `X-User-Email`, `X-User-First-Name` and
-`X-User-Last-Name`. Anyone can send these, so this has to be replaced before going live.
+### Customer login (IServ, Moodle)
+
+The backend runs the OpenID Connect authorization code flow itself, without Keycloak or
+another service in between:
+
+1. The website shows one button per provider from `GET /auth/providers`
+   (e.g. `["ISERV", "MOODLE"]`). A button is a normal link, not fetch, to
+   `{backend}/auth/iserv/login?returnTo=/cart` (or `/auth/moodle/login`).
+2. The backend redirects the browser to IServ or Moodle, where the customer logs in.
+3. IServ or Moodle redirect back to `{backend}/auth/iserv/callback` with a one-time code. The
+   backend trades it for an access token (client secret and PKCE), asks the provider for
+   `sub`, `email`, `given_name` and `family_name`, stores the customer and sets the session
+   cookie `ticket_session` (http-only, 7 days).
+4. The browser ends up at `{frontend}{returnTo}`, or at `{frontend}/?login=failed` if the
+   customer cancelled or something went wrong (the reason is in the backend log).
+
+The website calls the API with `credentials: "include"`. `GET /auth/me` returns the
+logged-in customer (401 if nobody is logged in), `POST /auth/logout` ends the session. The
+cookies are only sent over HTTPS, so production needs HTTPS (localhost works without).
+
+The code is in `security/SsoClient.java` (talking to IServ and Moodle),
+`service/AuthService.java` (sessions) and `controller/AuthController.java` (redirects and
+cookies). A provider that is not configured is not offered. How to register the backend at
+IServ and Moodle, all settings, troubleshooting and the sources are in
+[README.md](README.md#customer-login-sso).
+
+**Local development:** without an IServ or Moodle, open `{backend}/auth/dev/login`
+(optionally `?email=...&firstName=...&lastName=...`) to be logged in as a test customer.
+This only works with `./mvnw quarkus:dev` and answers 404 otherwise.
 
 ## Tables
 
-- **users**: customers from the SSO (subject, email, first and last name).
+- **users**: customers from IServ or Moodle (provider, subject, email, first and last name).
+  The subject is only unique within its provider.
+- **user_sessions**: logged-in customers. Only the SHA-256 hash of the cookie token is stored,
+  so the table alone cannot be used to take over a session; expired rows are removed on the
+  next login.
 - **admins**: the accounts of the login form: username, role (`ADMIN` or `DOOR_STAFF`),
   bcrypt password hash and contact email address. The email is NULL until an admin finished
   the first-login setup, and always NULL for the door staff account.
@@ -174,6 +205,12 @@ opens the website.
 | POST | /tickets/{code}/check-in | door staff, admin | door check, uses the ticket up if valid |
 | GET | /settings | admin | the settings |
 | PUT | /settings | admin | change the settings |
+| GET | /auth/providers | everyone | the configured login providers |
+| GET | /auth/{provider}/login?returnTo= | everyone | start the customer login (browser link, redirects) |
+| GET | /auth/{provider}/callback | IServ/Moodle | end of the login, redirects to the website |
+| GET | /auth/me | customer | the logged-in customer |
+| POST | /auth/logout | customer | log out (204) |
+| GET | /auth/dev/login | dev mode only | log in as a test customer (204) |
 | POST | /admin/login | everyone | admin login (form fields, see above) |
 | GET | /admin/me | door staff, admin (also before setup) | the logged-in account, incl. `role` and `setupRequired` |
 | PUT | /admin/account | admin, also before setup | set a new password and the email address |
@@ -208,5 +245,8 @@ may answer from their own address.
 
 The repository is public, so nothing secret goes into a committed file. Secret or
 installation-specific values live in `.env` (see `.env.example`) and are referenced from
-`application.properties` as `${...}`; Quarkus and docker compose both read it. The website
-address is set directly in `application.properties` as `ticket.frontend-url`.
+`application.properties` as `${...}`; Quarkus and docker compose both read it. All variables
+are listed in [README.md](README.md#configuration).
+
+Dates and times (event start, due dates, entry) are `LocalDateTime` without time zone, in the
+school's local time; the backend has to run with the time zone Europe/Berlin.

@@ -51,7 +51,6 @@ public class AdminRepository {
 
     private static Admin toAdmin(Record record) {
         return new Admin(
-                record.get(ADMINS.ADMIN_ID),
                 record.get(ADMINS.ADMIN_USERNAME),
                 AdminRole.valueOf(record.get(ADMINS.ADMIN_ROLE)),
                 record.get(ADMINS.ADMIN_PASSWORD_HASH),
