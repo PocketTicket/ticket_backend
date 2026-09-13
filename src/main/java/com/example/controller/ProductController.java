@@ -1,13 +1,13 @@
 package com.example.controller;
 
-import com.example.dto.product.ProductCreateRequest;
+import com.example.dto.product.ProductRequest;
 import com.example.dto.product.ProductResponse;
-import com.example.dto.product.ProductUpdateRequest;
+import com.example.security.AdminPasswordProvider;
 import com.example.service.ProductService;
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
@@ -27,7 +27,7 @@ public class ProductController {
     ProductService productService;
 
     /**
-     * Lists everything that can be ordered.
+     * Lists all ticket types with their prices and how many tickets are left.
      */
     @GET
     public List<ProductResponse> getProducts() {
@@ -44,26 +44,24 @@ public class ProductController {
         return productService.getProductById(productId);
     }
 
+    /**
+     * Creates a ticket type. (This is only for the admin panel)
+     */
     @POST
-    public Response createProduct(@Valid ProductCreateRequest request) {
+    @RolesAllowed(AdminPasswordProvider.ADMIN_ROLE)
+    public Response createProduct(@Valid ProductRequest request) {
         ProductResponse created = productService.createProduct(request);
         return Response.status(Response.Status.CREATED).entity(created).build();
     }
 
+    /**
+     * Updates a ticket type. (This is only for the admin panel)
+     */
     @PUT
     @Path("/{productId}")
+    @RolesAllowed(AdminPasswordProvider.ADMIN_ROLE)
     public ProductResponse updateProductById(@PathParam("productId") int productId,
-                                             @Valid ProductUpdateRequest request) {
+                                             @Valid ProductRequest request) {
         return productService.updateProductById(productId, request);
-    }
-
-    /**
-     * @return 204 on success, 404 if unknown, 409 if the product is part of an order
-     */
-    @DELETE
-    @Path("/{productId}")
-    public Response deleteProductById(@PathParam("productId") int productId) {
-        productService.deleteProductById(productId);
-        return Response.noContent().build();
     }
 }

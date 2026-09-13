@@ -1,9 +1,7 @@
 package com.example.service;
 
-import com.example.dto.product.ProductCreateRequest;
+import com.example.dto.product.ProductRequest;
 import com.example.dto.product.ProductResponse;
-import com.example.dto.product.ProductUpdateRequest;
-import com.example.exception.BusinessRuleException;
 import com.example.exception.ResourceNotFoundException;
 import com.example.mapper.ProductMapper;
 import com.example.models.product.Product;
@@ -25,46 +23,25 @@ public class ProductService {
     }
 
     public ProductResponse getProductById(int productId) {
-        return ProductMapper.toResponse(findProduct(productId));
+        Product product = productRepository.getProductById(productId);
+
+        if (product == null) {
+            throw new ResourceNotFoundException("No product with id " + productId);
+        }
+        return ProductMapper.toResponse(product);
     }
 
-    public ProductResponse createProduct(ProductCreateRequest request) {
-        Product created = productRepository.createProduct(ProductMapper.toModel(request));
+    public ProductResponse createProduct(ProductRequest request) {
+        Product created = productRepository.createProduct(ProductMapper.toModel(0, request));
         return ProductMapper.toResponse(created);
     }
 
-    public ProductResponse updateProductById(int productId, ProductUpdateRequest request) {
+    public ProductResponse updateProductById(int productId, ProductRequest request) {
         Product updated = productRepository.updateProduct(ProductMapper.toModel(productId, request));
 
         if (updated == null) {
             throw new ResourceNotFoundException("No product with id " + productId);
         }
         return ProductMapper.toResponse(updated);
-    }
-
-    /**
-     * Deletes a product.
-     *
-     * @throws ResourceNotFoundException if no product has that id.
-     * @throws BusinessRuleException     if the product is part of an existing order.
-     */
-    public void deleteProductById(int productId) {
-        findProduct(productId);
-
-        if (productRepository.isReferencedByOrderItem(productId)) {
-            throw new BusinessRuleException(
-                    "Product " + productId + " belongs to at least one order and cannot be deleted. "
-                            + "Set its stock to 0 instead.");
-        }
-        productRepository.deleteProductById(productId);
-    }
-
-    private Product findProduct(int productId) {
-        Product product = productRepository.getProductById(productId);
-
-        if (product == null) {
-            throw new ResourceNotFoundException("No product with id " + productId);
-        }
-        return product;
     }
 }

@@ -14,22 +14,18 @@
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <quarkus.platform.version>3.36.1</quarkus.platform.version>
-        <skipITs>true</skipITs>
         <surefire-plugin.version>3.5.6</surefire-plugin.version>
 
         <!-- Must match the org.jooq:jooq version pulled in by quarkus-jooq at runtime -->
         <jooq.version>3.19.22</jooq.version>
-
         <!-- Must match the flyway-core version pulled in by quarkus-flyway -->
         <flyway.version>12.0.0</flyway.version>
-
         <zxing.version>3.5.3</zxing.version>
 
-        <!--Jooq database connection parameters-->
+        <!-- The database the build migrates and generates the jOOQ classes from -->
         <jooq.codegen.jdbc.url>jdbc:postgresql://localhost:5432/app</jooq.codegen.jdbc.url>
         <jooq.codegen.jdbc.username>app</jooq.codegen.jdbc.username>
         <jooq.codegen.jdbc.password>app</jooq.codegen.jdbc.password>
-        <jooq.codegen.jdbc.database>app</jooq.codegen.jdbc.database>
     </properties>
 
     <dependencyManagement>
@@ -49,6 +45,11 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest</artifactId>
         </dependency>
+        <!-- Registers the JSON body reader/writer; plain quarkus-jackson does not -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-validator</artifactId>
@@ -59,40 +60,47 @@
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-hibernate-orm-panache</artifactId>
-        </dependency>
-        <!-- rest-jackson, not plain jackson: quarkus-jackson only configures the
-             ObjectMapper, it does not register the JSON body reader/writer that
-             Jakarta REST needs. Without it every POST answers 415 and every
-             response body is the record's toString(). -->
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-rest-jackson</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-smallrye-jwt</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-health</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jdbc-postgresql</artifactId>
         </dependency>
+        <!-- @Transactional -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-arc</artifactId>
+            <artifactId>quarkus-narayana-jta</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-hibernate-orm</artifactId>
+            <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkiverse.jooq</groupId>
             <artifactId>quarkus-jooq</artifactId>
             <version>2.1.0</version>
+        </dependency>
+        <!-- Admin login: @RolesAllowed, form login and bcrypt password hashes -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-elytron-security-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-mailer</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>${zxing.version}</version>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -103,18 +111,6 @@
             <groupId>io.rest-assured</groupId>
             <artifactId>rest-assured</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-flyway</artifactId>
-        </dependency>
-        <!-- QR encoding. Only zxing:core is needed - zxing:javase would add an
-             image-writing helper we replace with ~10 lines in QrCodeGenerator,
-             and it drags in extra imageio codecs we have no use for. -->
-        <dependency>
-            <groupId>com.google.zxing</groupId>
-            <artifactId>core</artifactId>
-            <version>${zxing.version}</version>
         </dependency>
     </dependencies>
 
@@ -139,26 +135,6 @@
                 <configuration>
                     <argLine>@{argLine}</argLine>
                     <systemPropertyVariables>
-                        <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-                        <maven.home>${maven.home}</maven.home>
-                    </systemPropertyVariables>
-                </configuration>
-            </plugin>
-            <plugin>
-                <artifactId>maven-failsafe-plugin</artifactId>
-                <version>${surefire-plugin.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>integration-test</goal>
-                            <goal>verify</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <argLine>@{argLine}</argLine>
-                    <systemPropertyVariables>
-                        <native.image.path>${project.build.directory}/${project.build.finalName}-runner</native.image.path>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                         <maven.home>${maven.home}</maven.home>
                     </systemPropertyVariables>
@@ -209,7 +185,6 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <!-- Never let a metadata error silently produce half-generated sources -->
                     <onError>FAIL</onError>
                     <jdbc>
                         <driver>org.postgresql.Driver</driver>
@@ -220,7 +195,6 @@
                     <generator>
                         <database>
                             <name>org.jooq.meta.postgres.PostgresDatabase</name>
-                            <!-- Flyway-Tabelle explizit von der Generierung ausschließen -->
                             <includes>.*</includes>
                             <excludes>flyway_schema_history</excludes>
                             <inputSchema>public</inputSchema>
@@ -234,20 +208,4 @@
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>native</id>
-            <activation>
-                <property>
-                    <name>native</name>
-                </property>
-            </activation>
-            <properties>
-                <quarkus.package.jar.enabled>false</quarkus.package.jar.enabled>
-                <skipITs>false</skipITs>
-                <quarkus.native.enabled>true</quarkus.native.enabled>
-            </properties>
-        </profile>
-    </profiles>
 </project>

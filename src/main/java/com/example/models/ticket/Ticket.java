@@ -1,18 +1,13 @@
 package com.example.models.ticket;
 
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
-/**
- * One admission. {@code code} is the payload of the QR code the guest shows at
- * the door; {@code usedAt} is set exactly when the status becomes USED.
- */
+/** Admits one person. {@code code} is the content of the QR code. */
 public record Ticket(
         int ticketId,
         String code,
-        int orderId,
         int productId,
         String productName,
-        TicketStatus status,
-        LocalDateTime issuedAt,
-        LocalDateTime usedAt
+        // The price at order time, not the current one of the product.
+        BigDecimal price
 ) { }

@@ -8,7 +8,8 @@ public record ProductResponse(
         String name,
         String description,
         BigDecimal price,
-        int stock,
-        LocalDateTime validFrom,
-        LocalDateTime validUntil
+        String location,
+        LocalDateTime startsAt,
+        int maxTickets,
+        int availableTickets
 ) { }

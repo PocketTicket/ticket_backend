@@ -1,63 +1,53 @@
 package com.example.repository;
 
-import com.example.jooq.generated.tables.records.OrdersRecord;
 import com.example.models.order.Order;
-import com.example.models.order.OrderItem;
 import com.example.models.order.OrderStatus;
+import com.example.models.ticket.Ticket;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jooq.DSLContext;
 import org.jooq.Field;
-import org.jooq.InsertValuesStep4;
 import org.jooq.Record;
+import org.jooq.SelectJoinStep;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.example.jooq.generated.Tables.ORDERS;
-import static com.example.jooq.generated.Tables.ORDER_ITEMS;
 import static com.example.jooq.generated.Tables.PRODUCTS;
+import static com.example.jooq.generated.Tables.TICKETS;
+import static com.example.jooq.generated.Tables.USERS;
 import static org.jooq.impl.DSL.multiset;
 import static org.jooq.impl.DSL.select;
 
 @ApplicationScoped
 public class OrderRepository {
 
-    /**
-     * Correlated sub-select that loads the items of the surrounding ORDERS row in
-     * the same round trip, so listing orders stays a single query. Typed, so the
-     * result can be read back with record.get(ITEMS) without an unchecked cast.
-     */
-    private static final Field<List<OrderItem>> ITEMS = multiset(
-            select(ORDER_ITEMS.ORDER_ITEM_ID,
-                    ORDER_ITEMS.ORDER_ITEM_PRODUCT_ID,
+    /** Loads the tickets of the surrounding ORDERS row in the same query. */
+    private static final Field<List<Ticket>> TICKETS_OF_ORDER = multiset(
+            select(TICKETS.TICKET_ID,
+                    TICKETS.TICKET_CODE,
+                    TICKETS.TICKET_PRODUCT_ID,
                     PRODUCTS.PRODUCT_NAME,
-                    ORDER_ITEMS.ORDER_ITEM_QUANTITY,
-                    ORDER_ITEMS.ORDER_ITEM_PRICE)
-                    .from(ORDER_ITEMS)
-                    .join(PRODUCTS).on(PRODUCTS.PRODUCT_ID.eq(ORDER_ITEMS.ORDER_ITEM_PRODUCT_ID))
-                    .where(ORDER_ITEMS.ORDER_ITEM_ORDER_ID.eq(ORDERS.ORDER_ID))
-                    .orderBy(ORDER_ITEMS.ORDER_ITEM_ID))
-            .as("items")
-            .convertFrom(result -> result.map(record -> new OrderItem(
-                    record.get(ORDER_ITEMS.ORDER_ITEM_ID),
-                    record.get(ORDER_ITEMS.ORDER_ITEM_PRODUCT_ID),
-                    record.get(PRODUCTS.PRODUCT_NAME),
-                    record.get(ORDER_ITEMS.ORDER_ITEM_QUANTITY),
-                    record.get(ORDER_ITEMS.ORDER_ITEM_PRICE))));
+                    TICKETS.TICKET_PRICE)
+                    .from(TICKETS)
+                    .join(PRODUCTS).on(PRODUCTS.PRODUCT_ID.eq(TICKETS.TICKET_PRODUCT_ID))
+                    .where(TICKETS.TICKET_ORDER_ID.eq(ORDERS.ORDER_ID))
+                    .orderBy(TICKETS.TICKET_ID))
+            .as("tickets")
+            .convertFrom(result -> result.map(record -> new Ticket(
+                    record.value1(),
+                    record.value2(),
+                    record.value3(),
+                    record.value4(),
+                    // The multiset travels as JSON, which turns 45.00 into 45.0.
+                    record.value5().setScale(2))));
 
     @Inject
     DSLContext jooq;
 
     public List<Order> getOrders() {
         return selectOrders()
-                .orderBy(ORDERS.ORDER_ID)
-                .fetch(OrderRepository::toOrder);
-    }
-
-    public List<Order> getOrdersByUserId(int userId) {
-        return selectOrders()
-                .where(ORDERS.ORDER_USER_ID.eq(userId))
                 .orderBy(ORDERS.ORDER_ID)
                 .fetch(OrderRepository::toOrder);
     }
@@ -70,32 +60,27 @@ public class OrderRepository {
     }
 
     /**
-     * Inserts the order and all of its items. The orderId and orderDate of the
-     * given model are ignored; the database assigns them.
+     * Inserts the order and all of its tickets. The ids and createdAt of the given
+     * models are ignored; the database assigns them.
      *
      * @return the stored order, re-read so it carries the generated values.
      */
     public Order createOrder(Order order) {
-        OrdersRecord created = jooq.insertInto(ORDERS)
-                .set(ORDERS.ORDER_USER_ID, order.userId())
-                .set(ORDERS.ORDER_TOTAL_AMOUNT, order.totalAmount())
-                .set(ORDERS.ORDER_PAYMENT_DUE_DATE, order.paymentDueDate())
-                .set(ORDERS.ORDER_PAYMENT_DATE, order.paymentDate())
-                .set(ORDERS.ORDER_STATUS, toJooqStatus(order.status()))
-                .returning()
-                .fetchOne();
+        int orderId = jooq.insertInto(ORDERS)
+                .set(ORDERS.ORDER_USER_ID, order.user().userId())
+                .set(ORDERS.ORDER_STATUS, order.status().name())
+                .set(ORDERS.ORDER_PAYMENT_DUE_AT, order.paymentDueAt())
+                .returning(ORDERS.ORDER_ID)
+                .fetchOne(ORDERS.ORDER_ID);
 
-        int orderId = created.getOrderId();
+        var insert = jooq.insertInto(TICKETS,
+                TICKETS.TICKET_ORDER_ID,
+                TICKETS.TICKET_PRODUCT_ID,
+                TICKETS.TICKET_CODE,
+                TICKETS.TICKET_PRICE);
 
-        InsertValuesStep4<?, Integer, Integer, Integer, java.math.BigDecimal> insert =
-                jooq.insertInto(ORDER_ITEMS,
-                        ORDER_ITEMS.ORDER_ITEM_ORDER_ID,
-                        ORDER_ITEMS.ORDER_ITEM_PRODUCT_ID,
-                        ORDER_ITEMS.ORDER_ITEM_QUANTITY,
-                        ORDER_ITEMS.ORDER_ITEM_PRICE);
-
-        for (OrderItem item : order.items()) {
-            insert = insert.values(orderId, item.productId(), item.quantity(), item.unitPrice());
+        for (Ticket ticket : order.tickets()) {
+            insert = insert.values(orderId, ticket.productId(), ticket.code(), ticket.price());
         }
         insert.execute();
 
@@ -103,62 +88,46 @@ public class OrderRepository {
     }
 
     /**
-     * Status only, without loading the items. Ticket validation runs on every
-     * scan at the door, so it should not pay for the multiset join.
+     * Marks a pending order as paid. The status check is part of the UPDATE, so
+     * two admins clicking at the same moment cannot send the tickets twice.
      *
-     * @return the status, or null if no order has that id.
+     * @return false if the order was not pending.
      */
-    public OrderStatus getOrderStatus(int orderId) {
-        return jooq.select(ORDERS.ORDER_STATUS)
-                .from(ORDERS)
+    public boolean markOrderAsPaid(int orderId, LocalDateTime paidAt) {
+        return jooq.update(ORDERS)
+                .set(ORDERS.ORDER_STATUS, OrderStatus.PAID.name())
+                .set(ORDERS.ORDER_PAID_AT, paidAt)
                 .where(ORDERS.ORDER_ID.eq(orderId))
-                .fetchOne(record -> fromJooqStatus(record.get(ORDERS.ORDER_STATUS)));
+                .and(ORDERS.ORDER_STATUS.eq(OrderStatus.PENDING.name()))
+                .execute() > 0;
     }
 
-    /** @return the updated order, or null if no order has that id. */
-    public Order updateStatus(int orderId, OrderStatus status, LocalDateTime paymentDate) {
-        int updated = jooq.update(ORDERS)
-                .set(ORDERS.ORDER_STATUS, toJooqStatus(status))
-                .set(ORDERS.ORDER_PAYMENT_DATE, paymentDate)
-                .where(ORDERS.ORDER_ID.eq(orderId))
-                .execute();
-
-        return updated > 0 ? getOrderById(orderId) : null;
-    }
-
-    private org.jooq.SelectJoinStep<? extends Record> selectOrders() {
+    private SelectJoinStep<? extends Record> selectOrders() {
         return jooq.select(
                         ORDERS.ORDER_ID,
-                        ORDERS.ORDER_USER_ID,
-                        ORDERS.ORDER_TOTAL_AMOUNT,
-                        ORDERS.ORDER_DATE,
-                        ORDERS.ORDER_PAYMENT_DUE_DATE,
-                        ORDERS.ORDER_PAYMENT_DATE,
                         ORDERS.ORDER_STATUS,
-                        ITEMS)
-                .from(ORDERS);
+                        ORDERS.ORDER_CREATED_AT,
+                        ORDERS.ORDER_PAYMENT_DUE_AT,
+                        ORDERS.ORDER_PAID_AT,
+                        USERS.USER_ID,
+                        USERS.USER_SSO_SUBJECT,
+                        USERS.USER_EMAIL,
+                        USERS.USER_FIRST_NAME,
+                        USERS.USER_LAST_NAME,
+                        TICKETS_OF_ORDER)
+                .from(ORDERS)
+                .join(USERS).on(USERS.USER_ID.eq(ORDERS.ORDER_USER_ID));
     }
 
     private static Order toOrder(Record record) {
         return new Order(
                 record.get(ORDERS.ORDER_ID),
-                record.get(ORDERS.ORDER_USER_ID),
-                record.get(ITEMS),
-                record.get(ORDERS.ORDER_TOTAL_AMOUNT),
-                record.get(ORDERS.ORDER_DATE),
-                record.get(ORDERS.ORDER_PAYMENT_DUE_DATE),
-                record.get(ORDERS.ORDER_PAYMENT_DATE),
-                fromJooqStatus(record.get(ORDERS.ORDER_STATUS))
+                UserRepository.toUser(record),
+                OrderStatus.valueOf(record.get(ORDERS.ORDER_STATUS)),
+                record.get(ORDERS.ORDER_CREATED_AT),
+                record.get(ORDERS.ORDER_PAYMENT_DUE_AT),
+                record.get(ORDERS.ORDER_PAID_AT),
+                record.get(TICKETS_OF_ORDER)
         );
-    }
-
-    private static com.example.jooq.generated.enums.OrderStatus toJooqStatus(OrderStatus status) {
-        return com.example.jooq.generated.enums.OrderStatus.valueOf(status.name());
-    }
-
-    // getLiteral(), not getName(): getName() returns the Postgres type name
-    // ("order_status"), which would make valueOf() throw on every read.
-    private static OrderStatus fromJooqStatus(com.example.jooq.generated.enums.OrderStatus status) {
-        return OrderStatus.valueOf(status.getLiteral());
     }
 }

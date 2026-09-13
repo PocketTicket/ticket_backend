@@ -3,14 +3,18 @@ package com.example.mapper;
 import com.example.dto.order.OrderItemResponse;
 import com.example.dto.order.OrderResponse;
 import com.example.models.order.Order;
-import com.example.models.order.OrderItem;
+import com.example.models.ticket.Ticket;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * The only place that knows both the Order model and its DTOs.
  * There is no toModel(OrderRequest) on purpose: building an Order needs the
- * product prices, which is business logic and therefore lives in OrderService.
+ * product prices and new ticket codes, which is business logic and therefore
+ * lives in OrderService.
  */
 public final class OrderMapper {
 
@@ -20,13 +24,15 @@ public final class OrderMapper {
     public static OrderResponse toResponse(Order order) {
         return new OrderResponse(
                 order.orderId(),
-                order.userId(),
-                toItemResponses(order.items()),
-                order.totalAmount(),
-                order.orderDate(),
-                order.paymentDueDate(),
-                order.paymentDate(),
-                order.status()
+                order.user().firstName(),
+                order.user().lastName(),
+                order.user().email(),
+                order.status(),
+                toItemResponses(order.tickets()),
+                order.total(),
+                order.createdAt(),
+                order.paymentDueAt(),
+                order.paidAt()
         );
     }
 
@@ -34,15 +40,16 @@ public final class OrderMapper {
         return orders.stream().map(OrderMapper::toResponse).toList();
     }
 
-    private static List<OrderItemResponse> toItemResponses(List<OrderItem> items) {
-        return items.stream()
-                .map(item -> new OrderItemResponse(
-                        item.productId(),
-                        item.productName(),
-                        item.quantity(),
-                        item.unitPrice(),
-                        item.lineTotal()
-                ))
+    /** An order stores one row per ticket, but the customer thinks in "3 x Abiball". */
+    private static List<OrderItemResponse> toItemResponses(List<Ticket> tickets) {
+        Map<Integer, List<Ticket>> ticketsByProduct = tickets.stream()
+                .collect(Collectors.groupingBy(Ticket::productId, LinkedHashMap::new, Collectors.toList()));
+
+        return ticketsByProduct.values().stream()
+                .map(group -> {
+                    Ticket first = group.getFirst();
+                    return new OrderItemResponse(first.productId(), first.productName(), group.size(), first.price());
+                })
                 .toList();
     }
 }

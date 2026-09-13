@@ -3,15 +3,19 @@ package com.example.models.product;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-// TODO ADD A PRODUCT IMAGE MAYBE??
 public record Product(
         int productId,
         String name,
         String description,
         BigDecimal price,
-        int stock,
-        // The entry window for this ticket type. Null on either side means no
-        // limit in that direction, so a product with both null always admits.
-        LocalDateTime validFrom,
-        LocalDateTime validUntil
-) { }
+        String location,
+        LocalDateTime startsAt,
+        int maxTickets,
+        // Tickets held by pending and paid orders.
+        int allocatedTickets
+) {
+    /** Never negative, even if an admin lowered maxTickets below what is already allocated. */
+    public int availableTickets() {
+        return Math.max(0, maxTickets - allocatedTickets);
+    }
+}

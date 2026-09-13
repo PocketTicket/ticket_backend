@@ -7,28 +7,33 @@ import com.example.exception.BusinessRuleException;
 import com.example.exception.ResourceNotFoundException;
 import com.example.mapper.OrderMapper;
 import com.example.models.order.Order;
-import com.example.models.order.OrderItem;
 import com.example.models.order.OrderStatus;
 import com.example.models.product.Product;
+import com.example.models.ticket.Ticket;
+import com.example.models.user.User;
 import com.example.repository.OrderRepository;
 import com.example.repository.ProductRepository;
+import com.example.security.CurrentUser;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 @ApplicationScoped
 @Transactional
 public class OrderService {
 
-    /** How long a reservation stays open before the bank transfer is due. */
-    private static final int PAYMENT_WINDOW_DAYS = 7;
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    @ConfigProperty(name = "ticket.payment-days")
+    int paymentDays;
 
     @Inject
     OrderRepository orderRepository;
@@ -37,18 +42,14 @@ public class OrderService {
     ProductRepository productRepository;
 
     @Inject
-    UserService userService;
+    CurrentUser currentUser;
 
     @Inject
-    TicketService ticketService;
+    MailService mailService;
 
     /** Every order in the system. Intended for the admin panel. */
     public List<OrderResponse> getOrders() {
         return OrderMapper.toResponses(orderRepository.getOrders());
-    }
-
-    public List<OrderResponse> getOrdersByUserId(int userId) {
-        return OrderMapper.toResponses(orderRepository.getOrdersByUserId(userId));
     }
 
     public OrderResponse getOrderById(int orderId) {
@@ -56,107 +57,70 @@ public class OrderService {
     }
 
     /**
-     * Places an order. Prices and the total are read from the products, never from
-     * the request, and the stock of every product is reserved in the same
-     * transaction - so an order either exists with its tickets held, or not at all.
+     * Places an order for the logged-in user, allocates its tickets until the
+     * payment is due and emails the bank transfer details. Prices are read from
+     * the products, never from the request. If one product has too few tickets
+     * left, the transaction rolls back and nothing is allocated at all.
      *
      * @throws ResourceNotFoundException if the request names a product that does not exist.
-     * @throws BusinessRuleException     if a product does not have enough stock left.
+     * @throws BusinessRuleException     if a product has too few tickets left.
      */
     public OrderResponse createOrder(OrderRequest request) {
-        // Before any stock is touched: orders.order_user_id became a foreign key in
-        // V0003, so an unknown buyer should read as a 404 rather than surfacing as
-        // a constraint violation once the items are already reserved.
-        userService.requireExists(request.userId());
+        User user = currentUser.get();
+        List<Ticket> tickets = new ArrayList<>();
 
-        List<OrderItem> items = new ArrayList<>();
-        BigDecimal total = BigDecimal.ZERO;
+        // Always lock the product rows in the same order, so two orders for the
+        // same products cannot deadlock each other.
+        List<OrderItemRequest> items = request.items().stream()
+                .sorted(Comparator.comparingInt(OrderItemRequest::productId))
+                .toList();
 
-        for (Map.Entry<Integer, Integer> entry : mergeQuantitiesByProduct(request.items()).entrySet()) {
-            int productId = entry.getKey();
-            int quantity = entry.getValue();
-
-            Product product = productRepository.getProductById(productId);
+        for (OrderItemRequest item : items) {
+            Product product = productRepository.getProductById(item.productId());
             if (product == null) {
-                throw new ResourceNotFoundException("No product with id " + productId);
+                throw new ResourceNotFoundException("No product with id " + item.productId());
             }
 
-            if (!productRepository.decreaseStock(productId, quantity)) {
+            if (!productRepository.allocateTickets(product.productId(), item.quantity())) {
                 throw new BusinessRuleException(
-                        "Only " + product.stock() + " left of \"" + product.name()
-                                + "\", but " + quantity + " were requested");
+                        "Only " + product.availableTickets() + " tickets left for \"" + product.name() + "\"");
             }
 
-            // orderItemId is assigned by the database on insert.
-            OrderItem item = new OrderItem(0, productId, product.name(), quantity, product.price());
-            items.add(item);
-            total = total.add(item.lineTotal());
+            for (int i = 0; i < item.quantity(); i++) {
+                tickets.add(new Ticket(0, newTicketCode(), product.productId(), product.name(), product.price()));
+            }
         }
 
-        Order order = new Order(
+        Order order = orderRepository.createOrder(new Order(
                 0,
-                request.userId(),
-                items,
-                total,
+                user,
+                OrderStatus.PENDING,
                 null,
-                LocalDateTime.now().plusDays(PAYMENT_WINDOW_DAYS),
+                LocalDateTime.now().plusDays(paymentDays),
                 null,
-                OrderStatus.ORDERED
-        );
+                tickets
+        ));
 
-        return OrderMapper.toResponse(orderRepository.createOrder(order));
+        mailService.sendPaymentInstructions(order);
+        return OrderMapper.toResponse(order);
     }
 
     /**
-     * Records an incoming bank transfer. Only an open order can be paid.
+     * Records the incoming bank transfer and emails the tickets as QR codes.
      *
-     * @throws BusinessRuleException if the order is not in state ORDERED.
+     * @throws BusinessRuleException if the order is not waiting for payment.
      */
     public OrderResponse markOrderAsPaid(int orderId) {
         Order order = findOrder(orderId);
 
-        if (order.status() != OrderStatus.ORDERED) {
+        if (!orderRepository.markOrderAsPaid(orderId, LocalDateTime.now())) {
             throw new BusinessRuleException(
                     "Order " + orderId + " is " + order.status() + " and cannot be marked as paid");
         }
 
-        Order paid = orderRepository.updateStatus(orderId, OrderStatus.PAID, LocalDateTime.now());
-
-        // The point of the whole flow: once the transfer has arrived, the tickets
-        // exist and can be sent out as QR codes.
-        ticketService.issueTicketsForOrder(paid);
-
+        Order paid = findOrder(orderId);
+        mailService.sendTickets(paid);
         return OrderMapper.toResponse(paid);
-    }
-
-    /**
-     * Cancels an order and releases the reserved stock. Orders are never deleted:
-     * the row stays as a record of what happened, which is also what the admin
-     * panel and any later refund handling need.
-     *
-     * @throws BusinessRuleException if the order was already handed out or closed.
-     */
-    public OrderResponse cancelOrderById(int orderId) {
-        Order order = findOrder(orderId);
-
-        if (order.status() == OrderStatus.CANCELLED || order.status() == OrderStatus.REVOKED) {
-            throw new BusinessRuleException("Order " + orderId + " is already " + order.status());
-        }
-        if (order.status() == OrderStatus.DELIVERED) {
-            throw new BusinessRuleException(
-                    "Order " + orderId + " was already delivered and cannot be cancelled");
-        }
-
-        for (OrderItem item : order.items()) {
-            productRepository.increaseStock(item.productId(), item.quantity());
-        }
-
-        // A paid order that gets cancelled already has QR codes in people's inboxes,
-        // so the tickets have to be invalidated too, not just the order.
-        ticketService.cancelTicketsForOrder(orderId);
-
-        return OrderMapper.toResponse(
-                orderRepository.updateStatus(orderId, OrderStatus.CANCELLED, order.paymentDate()));
     }
 
     private Order findOrder(int orderId) {
@@ -168,17 +132,10 @@ public class OrderService {
         return order;
     }
 
-    /**
-     * The same product may appear twice in a cart. Collapsing it here keeps one
-     * order_items row per product and makes the stock reservation below check the
-     * full quantity at once instead of twice against a stale value.
-     */
-    private static Map<Integer, Integer> mergeQuantitiesByProduct(List<OrderItemRequest> items) {
-        Map<Integer, Integer> quantities = new LinkedHashMap<>();
-
-        for (OrderItemRequest item : items) {
-            quantities.merge(item.productId(), item.quantity(), Integer::sum);
-        }
-        return quantities;
+    /** 144 random bits, so a code cannot be guessed. URL safe, because the QR code holds a link. */
+    private static String newTicketCode() {
+        byte[] bytes = new byte[18];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 }

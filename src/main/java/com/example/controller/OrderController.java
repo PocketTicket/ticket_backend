@@ -2,7 +2,9 @@ package com.example.controller;
 
 import com.example.dto.order.OrderRequest;
 import com.example.dto.order.OrderResponse;
+import com.example.security.AdminPasswordProvider;
 import com.example.service.OrderService;
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
@@ -26,41 +28,31 @@ public class OrderController {
 
     /**
      * Gets all orders. (This is only for the admin panel)
-     *
-     * @return a list of all orders
      */
     @GET
+    @RolesAllowed(AdminPasswordProvider.ADMIN_ROLE)
     public List<OrderResponse> getOrders() {
         return orderService.getOrders();
     }
 
     /**
-     * Gets all orders for a specific user.
-     *
-     * @param userId the ID of the user of whom to retrieve orders
-     */
-    @GET
-    @Path("/user/{userId}")
-    public List<OrderResponse> getOrdersByUserId(@PathParam("userId") int userId) {
-        return orderService.getOrdersByUserId(userId);
-    }
-
-    /**
-     * Gets a specific order by its ID.
+     * Gets a specific order by its ID. (This is only for the admin panel)
      *
      * @return the order, or 404 if it does not exist
      */
     @GET
     @Path("/{orderId}")
+    @RolesAllowed(AdminPasswordProvider.ADMIN_ROLE)
     public OrderResponse getOrderById(@PathParam("orderId") int orderId) {
         return orderService.getOrderById(orderId);
     }
 
     /**
-     * Places an order. The total and the item prices are calculated server-side;
-     * the payment due date is set to seven days from now.
+     * Places an order for the logged-in user. The tickets are reserved until the
+     * payment is due and the user gets an email with the bank transfer details.
      *
-     * @return 201 with the stored order, 404 for an unknown product, 409 if stock ran out
+     * @return 201 with the order, 401 if not logged in, 404 for an unknown product,
+     *         409 if too few tickets are left
      */
     @POST
     public Response createOrder(@Valid OrderRequest request) {
@@ -69,21 +61,15 @@ public class OrderController {
     }
 
     /**
-     * Records the incoming bank transfer for an order. (This is only for the admin panel)
+     * Confirms that the bank transfer arrived and emails the tickets as QR codes.
+     * (This is only for the admin panel)
+     *
+     * @return the paid order, 404 if unknown, 409 if the order is not pending
      */
     @PATCH
     @Path("/{orderId}/payment")
+    @RolesAllowed(AdminPasswordProvider.ADMIN_ROLE)
     public OrderResponse markOrderAsPaid(@PathParam("orderId") int orderId) {
         return orderService.markOrderAsPaid(orderId);
-    }
-
-    /**
-     * Cancels an order and releases its reserved tickets. Orders are cancelled,
-     * never deleted, so the history stays intact.
-     */
-    @PATCH
-    @Path("/{orderId}/cancellation")
-    public OrderResponse cancelOrderById(@PathParam("orderId") int orderId) {
-        return orderService.cancelOrderById(orderId);
     }
 }

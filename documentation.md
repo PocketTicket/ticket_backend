@@ -1,105 +1,93 @@
-# This documentation holds basic model information
+# How the ticket backend works
 
 ## Layering
 
 Client JSON -> Controller (DTO) -> Service (DTO <-> Model, business rules) ->
-Repository (Model, SQL) -> Database, and back the same way. Controllers never see
-a model, repositories never see a DTO, and the conversion happens in
-`com.example.mapper`, so neither package has to import the other.
+Repository (Model, SQL via jOOQ) -> Database, and back the same way. Controllers never
+see a model, repositories never see a DTO; the conversion happens in `com.example.mapper`.
 
-## Models (com.example.models)
+## Flow
 
-- Order (int orderId, int userId, List&lt;OrderItem&gt; items, BigDecimal totalAmount,
-  LocalDateTime orderDate, LocalDateTime paymentDueDate, LocalDateTime paymentDate,
-  OrderStatus status)
-- OrderItem (int orderItemId, int productId, String productName, int quantity,
-  BigDecimal unitPrice) - `productName` is joined from products for display,
-  `unitPrice` is the price snapshot taken when the order was placed
-- OrderStatus (ORDERED, PAID, DELIVERED, REVOKED, CANCELLED)
-- Product (int productId, String name, String description, BigDecimal price, int stock)
+1. The website lists all ticket types with price and tickets left (`GET /products`)
+   and shows one in detail (`GET /products/{productId}`).
+2. The customer logs in via the SSO and places an order (`POST /orders`). One order can
+   mix ticket types, e.g. 3 x ticket A and 2 x ticket B. The tickets are allocated right
+   away, the order is `PENDING` and the customer gets an email with the bank transfer
+   details. The payment is due after `ticket.payment-days`.
+3. An admin logs in on the admin login form and confirms the transfer
+   (`PATCH /orders/{orderId}/payment`). The order becomes `PAID` and the customer gets an
+   email with one QR code per ticket.
 
-Money is `BigDecimal` everywhere to match the `DECIMAL(10,2)` columns.
+## Logins
 
-## DTOs (com.example.dto)
+- **Customers** log in via the SSO, which provides email, first name and last name. On
+  their first order they are stored in `users`, identified by the SSO subject; email and
+  names are refreshed on every later order.
+- **Admins** do not come from the SSO. They log in with username and password:
+  `POST /admin/login` with the form fields `username` and `password`
+  (`application/x-www-form-urlencoded`) answers 200 and sets an encrypted, http-only
+  cookie, or 401. The website has to send its requests with credentials
+  (`fetch(url, { credentials: "include" })`). `GET /admin/me` tells whether the admin is
+  still logged in, `POST /admin/logout` ends the session. The admin from `.env`
+  (`ADMIN_USERNAME`, `ADMIN_PASSWORD`) is created on startup; passwords are stored as
+  bcrypt hashes.
 
-Inbound:
-- OrderRequest (userId, items) - no total; it is calculated from the products
-- OrderItemRequest (productId, quantity) - no price; it is read from the product
-- ProductCreateRequest / ProductUpdateRequest (name, description, price, stock)
+Admin-only endpoints answer 401 without login.
 
-Outbound:
-- OrderResponse (orderId, userId, items, total, orderDate, paymentDueDate,
-  paymentDate, status)
-- OrderItemResponse (productId, productName, quantity, unitPrice, lineTotal)
-- ProductResponse (productId, name, description, price, stock)
-- ErrorResponse (status, message)
+**Not done yet:** until the SSO is connected, `security/CurrentUser` reads the customer
+from the headers `X-User-Subject`, `X-User-Email`, `X-User-First-Name` and
+`X-User-Last-Name`. Anyone can send these, so this has to be replaced before going live.
+
+## Tables
+
+- **users**: customers from the SSO (subject, email, first and last name).
+- **admins**: username and bcrypt password hash.
+- **products**: a ticket type: name, description, price, location, start time and the
+  maximum number of tickets. `allocated_tickets` counts the tickets of pending and paid
+  orders; it is raised with a single conditional UPDATE, so the last ticket cannot be sold twice.
+- **orders**: who ordered, status (`PENDING`, `PAID`, `CANCELLED`), when the payment is due
+  and when it arrived. The total is the sum of its tickets.
+- **tickets**: one row per person, so 3 x A and 2 x B are 5 rows; the API groups them back
+  into items. Each row stores its product, the price at order time and a random code
+  (144 bits, Base64url) that cannot be guessed.
+
+A ticket's QR code holds the link `{ticket.frontend-url}/tickets/{code}`, so scanning it
+opens the website.
 
 ## Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | /products | list products |
-| GET | /products/{productId} | one product |
-| POST | /products | create (201) |
-| PUT | /products/{productId} | replace |
-| DELETE | /products/{productId} | delete (204; 409 if already ordered) |
-| GET | /orders | all orders, admin |
-| GET | /orders/user/{userId} | orders of one user |
-| GET | /orders/{orderId} | one order |
-| POST | /orders | place an order (201) |
-| PATCH | /orders/{orderId}/payment | record the bank transfer, admin |
-| PATCH | /orders/{orderId}/cancellation | cancel and release the tickets |
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| GET | /products | everyone | all ticket types |
+| GET | /products/{productId} | everyone | one ticket type |
+| POST | /products | admin | create (201) |
+| PUT | /products/{productId} | admin | update |
+| POST | /orders | customer | place an order (201; 409 if too few tickets left) |
+| GET | /orders | admin | all orders |
+| GET | /orders/{orderId} | admin | one order |
+| PATCH | /orders/{orderId}/payment | admin | confirm payment and send tickets (409 if not pending) |
+| POST | /admin/login | everyone | admin login (form fields, see above) |
+| GET | /admin/me | admin | the logged-in admin |
+| POST | /admin/logout | admin | log out (204) |
 
-Errors come back as `ErrorResponse`: 404 unknown id, 409 business rule violated,
-400 failed bean validation.
+Errors come back as `ErrorResponse`: 401 not logged in, 404 unknown id, 409 business rule
+violated. Failed bean validation answers 400.
 
-## Users, tickets and QR codes (V0003)
+Example bodies:
 
-### Models
+```json
+POST /products
+{ "name": "Abiball 2027", "description": "Dinner und Party", "price": 45.00,
+  "location": "Stadthalle", "startsAt": "2027-06-26T18:00:00", "maxTickets": 400 }
 
-- User (int userId, String firstName, String lastName, String email, UserRole role,
-  AuthProvider authProvider, String externalId, String passwordHash,
-  LocalDateTime createdAt) - `passwordHash` never leaves the service layer
-- UserRole (USER, CREATOR, ADMIN)
-- AuthProvider (LOCAL, ISERV, MOODLE) - LOCAL is the password login kept for admins,
-  the others are the school's identity providers. `externalId` is the provider's
-  subject and is null for LOCAL accounts; `passwordHash` is the other way round
-- Ticket (int ticketId, String code, int orderId, int productId, String productName,
-  TicketStatus status, LocalDateTime issuedAt, LocalDateTime usedAt)
-- TicketStatus (VALID, USED, CANCELLED)
+POST /orders
+{ "items": [ { "productId": 1, "quantity": 3 }, { "productId": 2, "quantity": 2 } ] }
+```
 
-Product gained `validFrom` / `validUntil`: the entry window of that ticket type.
-Null on either side means no limit in that direction, so an 18:00 ticket and a
-22:00 late entry ticket are two products with different windows.
+## Configuration
 
-### QR codes
-
-- `TicketCodeGenerator` draws a 24 character code from SecureRandom over a 32
-  character alphabet (no I, O, 0, 1). 120 bits, so a code cannot be guessed from
-  other codes; `ticket_code` is UNIQUE as the backstop.
-- `QrCodeGenerator` renders a code as a PNG (zxing, error correction Q).
-- `TicketValidator` decides admission and touches no database, so the awkward
-  cases are testable on their own. It does not consume the ticket - that is the
-  conditional UPDATE in `TicketService.checkIn`, which is what stops two doors
-  scanning the same code at the same moment.
-
-Rejection reasons: ALREADY_USED, TICKET_CANCELLED, ORDER_NOT_PAID, NOT_YET_VALID,
-EXPIRED.
-
-### Flow
-
-Order paid -> one ticket per admitted person (quantity 3 gives 3 codes) ->
-QR sent out -> scanned at the door -> ticket becomes USED. Cancelling an order
-invalidates its outstanding tickets; already used ones keep their status.
-
-### Endpoints
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | /users | list users |
-| GET | /users/{userId} | one user |
-| POST | /users | create (201; 409 if the email is taken) |
-| GET | /tickets/order/{orderId} | the tickets of one order |
-| GET | /tickets/{code} | look a code up without consuming it |
-| GET | /tickets/{code}/qr | the QR image (image/png) |
-| POST | /tickets/{code}/check-in | admit: validate and consume (409 with the reason) |
+The repository is public, so nothing secret goes into a committed file. Secret or
+installation-specific values live in `.env` (see `.env.example`) and are referenced from
+`application.properties` as `${...}`; Quarkus and docker compose both read it. Everything
+else is set directly in `application.properties`: `ticket.payment-days` and
+`ticket.frontend-url`.

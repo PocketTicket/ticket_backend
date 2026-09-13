@@ -1,9 +1,9 @@
 package com.example.models.order;
 
 public enum OrderStatus {
-    ORDERED,
+    /** The tickets are reserved, the bank transfer has not arrived yet. */
+    PENDING,
     PAID,
-    DELIVERED,
-    REVOKED,
+    /** Not paid in time; the tickets were released again. */
     CANCELLED
 }
