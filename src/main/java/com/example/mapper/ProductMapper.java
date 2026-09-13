@@ -6,12 +6,9 @@ import com.example.dto.product.ProductUpdateRequest;
 import com.example.models.product.Product;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
-/**
- * The only place that knows both the Product model and its DTOs. Keeping it here
- * means neither package has to import the other.
- */
 public final class ProductMapper {
 
     private ProductMapper() {
@@ -24,7 +21,9 @@ public final class ProductMapper {
                 request.name(),
                 request.description(),
                 scale(request.price()),
-                request.stock()
+                request.stock(),
+                request.validFrom(),
+                request.validUntil()
         );
     }
 
@@ -34,7 +33,9 @@ public final class ProductMapper {
                 request.name(),
                 request.description(),
                 scale(request.price()),
-                request.stock()
+                request.stock(),
+                request.validFrom(),
+                request.validUntil()
         );
     }
 
@@ -44,7 +45,9 @@ public final class ProductMapper {
                 product.name(),
                 product.description(),
                 product.price(),
-                product.stock()
+                product.stock(),
+                product.validFrom(),
+                product.validUntil()
         );
     }
 
@@ -54,6 +57,6 @@ public final class ProductMapper {
 
     /** products.product_price is DECIMAL(10,2); match it so reads and writes agree. */
     private static BigDecimal scale(BigDecimal price) {
-        return price.setScale(2, java.math.RoundingMode.HALF_UP);
+        return price.setScale(2, RoundingMode.HALF_UP);
     }
 }

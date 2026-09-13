@@ -1,12 +1,14 @@
 package com.example.dto.product;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
-// INFO - outbound only.
 public record ProductResponse(
         int productId,
         String name,
         String description,
         BigDecimal price,
-        int stock
+        int stock,
+        LocalDateTime validFrom,
+        LocalDateTime validUntil
 ) { }

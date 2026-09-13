@@ -36,6 +36,12 @@ public class OrderService {
     @Inject
     ProductRepository productRepository;
 
+    @Inject
+    UserService userService;
+
+    @Inject
+    TicketService ticketService;
+
     /** Every order in the system. Intended for the admin panel. */
     public List<OrderResponse> getOrders() {
         return OrderMapper.toResponses(orderRepository.getOrders());
@@ -58,6 +64,11 @@ public class OrderService {
      * @throws BusinessRuleException     if a product does not have enough stock left.
      */
     public OrderResponse createOrder(OrderRequest request) {
+        // Before any stock is touched: orders.order_user_id became a foreign key in
+        // V0003, so an unknown buyer should read as a 404 rather than surfacing as
+        // a constraint violation once the items are already reserved.
+        userService.requireExists(request.userId());
+
         List<OrderItem> items = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
 
@@ -109,8 +120,13 @@ public class OrderService {
                     "Order " + orderId + " is " + order.status() + " and cannot be marked as paid");
         }
 
-        return OrderMapper.toResponse(
-                orderRepository.updateStatus(orderId, OrderStatus.PAID, LocalDateTime.now()));
+        Order paid = orderRepository.updateStatus(orderId, OrderStatus.PAID, LocalDateTime.now());
+
+        // The point of the whole flow: once the transfer has arrived, the tickets
+        // exist and can be sent out as QR codes.
+        ticketService.issueTicketsForOrder(paid);
+
+        return OrderMapper.toResponse(paid);
     }
 
     /**
@@ -134,6 +150,10 @@ public class OrderService {
         for (OrderItem item : order.items()) {
             productRepository.increaseStock(item.productId(), item.quantity());
         }
+
+        // A paid order that gets cancelled already has QR codes in people's inboxes,
+        // so the tickets have to be invalidated too, not just the order.
+        ticketService.cancelTicketsForOrder(orderId);
 
         return OrderMapper.toResponse(
                 orderRepository.updateStatus(orderId, OrderStatus.CANCELLED, order.paymentDate()));

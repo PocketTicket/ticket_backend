@@ -102,6 +102,19 @@ public class OrderRepository {
         return getOrderById(orderId);
     }
 
+    /**
+     * Status only, without loading the items. Ticket validation runs on every
+     * scan at the door, so it should not pay for the multiset join.
+     *
+     * @return the status, or null if no order has that id.
+     */
+    public OrderStatus getOrderStatus(int orderId) {
+        return jooq.select(ORDERS.ORDER_STATUS)
+                .from(ORDERS)
+                .where(ORDERS.ORDER_ID.eq(orderId))
+                .fetchOne(record -> fromJooqStatus(record.get(ORDERS.ORDER_STATUS)));
+    }
+
     /** @return the updated order, or null if no order has that id. */
     public Order updateStatus(int orderId, OrderStatus status, LocalDateTime paymentDate) {
         int updated = jooq.update(ORDERS)

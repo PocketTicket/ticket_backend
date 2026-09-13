@@ -37,6 +37,8 @@ public class ProductRepository {
                 .set(PRODUCTS.PRODUCT_DESCRIPTION, product.description())
                 .set(PRODUCTS.PRODUCT_PRICE, product.price())
                 .set(PRODUCTS.PRODUCT_STOCK, product.stock())
+                .set(PRODUCTS.PRODUCT_VALID_FROM, product.validFrom())
+                .set(PRODUCTS.PRODUCT_VALID_UNTIL, product.validUntil())
                 .returning()
                 .fetchOne(ProductRepository::toProduct);
     }
@@ -48,6 +50,8 @@ public class ProductRepository {
                 .set(PRODUCTS.PRODUCT_DESCRIPTION, product.description())
                 .set(PRODUCTS.PRODUCT_PRICE, product.price())
                 .set(PRODUCTS.PRODUCT_STOCK, product.stock())
+                .set(PRODUCTS.PRODUCT_VALID_FROM, product.validFrom())
+                .set(PRODUCTS.PRODUCT_VALID_UNTIL, product.validUntil())
                 .where(PRODUCTS.PRODUCT_ID.eq(product.productId()))
                 .returning()
                 .fetchOne(ProductRepository::toProduct);
@@ -100,7 +104,9 @@ public class ProductRepository {
                 record.get(PRODUCTS.PRODUCT_NAME),
                 record.get(PRODUCTS.PRODUCT_DESCRIPTION),
                 record.get(PRODUCTS.PRODUCT_PRICE),
-                record.get(PRODUCTS.PRODUCT_STOCK)
+                record.get(PRODUCTS.PRODUCT_STOCK),
+                record.get(PRODUCTS.PRODUCT_VALID_FROM),
+                record.get(PRODUCTS.PRODUCT_VALID_UNTIL)
         );
     }
 }

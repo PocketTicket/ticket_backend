@@ -6,6 +6,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public record ProductCreateRequest(
         @NotBlank(message = "name must not be blank")
@@ -19,5 +20,9 @@ public record ProductCreateRequest(
         BigDecimal price,
 
         @PositiveOrZero(message = "stock must not be negative")
-        int stock
+        int stock,
+
+        // Entry window; both optional. A late entry ticket sets validFrom to 22:00.
+        LocalDateTime validFrom,
+        LocalDateTime validUntil
 ) { }

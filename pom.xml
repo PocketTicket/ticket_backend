@@ -23,6 +23,8 @@
         <!-- Must match the flyway-core version pulled in by quarkus-flyway -->
         <flyway.version>12.0.0</flyway.version>
 
+        <zxing.version>3.5.3</zxing.version>
+
         <!--Jooq database connection parameters-->
         <jooq.codegen.jdbc.url>jdbc:postgresql://localhost:5432/app</jooq.codegen.jdbc.url>
         <jooq.codegen.jdbc.username>app</jooq.codegen.jdbc.username>
@@ -105,6 +107,14 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+        <!-- QR encoding. Only zxing:core is needed - zxing:javase would add an
+             image-writing helper we replace with ~10 lines in QrCodeGenerator,
+             and it drags in extra imageio codecs we have no use for. -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>${zxing.version}</version>
         </dependency>
     </dependencies>
 
