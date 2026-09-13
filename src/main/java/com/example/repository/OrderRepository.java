@@ -5,6 +5,7 @@ import com.example.models.order.OrderStatus;
 import com.example.models.ticket.Ticket;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
@@ -17,7 +18,10 @@ import static com.example.jooq.generated.Tables.ORDERS;
 import static com.example.jooq.generated.Tables.PRODUCTS;
 import static com.example.jooq.generated.Tables.TICKETS;
 import static com.example.jooq.generated.Tables.USERS;
+import static org.jooq.impl.DSL.concat;
+import static org.jooq.impl.DSL.inline;
 import static org.jooq.impl.DSL.multiset;
+import static org.jooq.impl.DSL.noCondition;
 import static org.jooq.impl.DSL.select;
 
 @ApplicationScoped
@@ -46,9 +50,37 @@ public class OrderRepository {
     @Inject
     DSLContext jooq;
 
-    public List<Order> getOrders() {
+    /**
+     * Orders for the admin list, newest first.
+     *
+     * @param search matches the order number exactly, or any part of the customer's full
+     *               name or email, ignoring case. Null or blank matches every order.
+     * @param status only orders with this status; null for all
+     */
+    public List<Order> getOrders(String search, OrderStatus status) {
+        Condition condition = noCondition();
+
+        if (status != null) {
+            condition = condition.and(ORDERS.ORDER_STATUS.eq(status.name()));
+        }
+        if (search != null && !search.isBlank()) {
+            String term = search.trim();
+            condition = condition.and(ORDERS.ORDER_ID.cast(String.class).eq(term)
+                    .or(concat(USERS.USER_FIRST_NAME, inline(" "), USERS.USER_LAST_NAME).containsIgnoreCase(term))
+                    .or(USERS.USER_EMAIL.containsIgnoreCase(term)));
+        }
+
         return selectOrders()
-                .orderBy(ORDERS.ORDER_ID)
+                .where(condition)
+                .orderBy(ORDERS.ORDER_ID.desc())
+                .fetch(OrderRepository::toOrder);
+    }
+
+    /** All orders of one customer, newest first. */
+    public List<Order> getOrdersByUserId(int userId) {
+        return selectOrders()
+                .where(ORDERS.ORDER_USER_ID.eq(userId))
+                .orderBy(ORDERS.ORDER_ID.desc())
                 .fetch(OrderRepository::toOrder);
     }
 
@@ -57,6 +89,15 @@ public class OrderRepository {
         return selectOrders()
                 .where(ORDERS.ORDER_ID.eq(orderId))
                 .fetchOne(OrderRepository::toOrder);
+    }
+
+    /** The ids of all pending orders whose payment was due before {@code dueBefore}. */
+    public List<Integer> getOverdueOrderIds(LocalDateTime dueBefore) {
+        return jooq.select(ORDERS.ORDER_ID)
+                .from(ORDERS)
+                .where(ORDERS.ORDER_STATUS.eq(OrderStatus.PENDING.name()))
+                .and(ORDERS.ORDER_PAYMENT_DUE_AT.lt(dueBefore))
+                .fetch(ORDERS.ORDER_ID);
     }
 
     /**
@@ -88,15 +129,30 @@ public class OrderRepository {
     }
 
     /**
-     * Marks a pending order as paid. The status check is part of the UPDATE, so
-     * two admins clicking at the same moment cannot send the tickets twice.
+     * Marks an order as paid, but only if it still has {@code currentStatus}. The status
+     * check is part of the UPDATE, so two admins clicking at the same moment cannot send
+     * the tickets twice.
      *
-     * @return false if the order was not pending.
+     * @return false if the status was changed in the meantime.
      */
-    public boolean markOrderAsPaid(int orderId, LocalDateTime paidAt) {
+    public boolean markOrderAsPaid(int orderId, OrderStatus currentStatus, LocalDateTime paidAt) {
         return jooq.update(ORDERS)
                 .set(ORDERS.ORDER_STATUS, OrderStatus.PAID.name())
                 .set(ORDERS.ORDER_PAID_AT, paidAt)
+                .where(ORDERS.ORDER_ID.eq(orderId))
+                .and(ORDERS.ORDER_STATUS.eq(currentStatus.name()))
+                .execute() > 0;
+    }
+
+    /**
+     * Cancels a pending order. The status check is part of the UPDATE, so an order
+     * cannot be cancelled while it is being paid.
+     *
+     * @return false if the order was not pending.
+     */
+    public boolean cancelOrder(int orderId) {
+        return jooq.update(ORDERS)
+                .set(ORDERS.ORDER_STATUS, OrderStatus.CANCELLED.name())
                 .where(ORDERS.ORDER_ID.eq(orderId))
                 .and(ORDERS.ORDER_STATUS.eq(OrderStatus.PENDING.name()))
                 .execute() > 0;

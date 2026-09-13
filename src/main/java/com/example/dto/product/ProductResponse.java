@@ -11,5 +11,7 @@ public record ProductResponse(
         String location,
         LocalDateTime startsAt,
         int maxTickets,
-        int availableTickets
+        int availableTickets,
+        // If true, the picture is at GET /products/{productId}/image.
+        boolean hasImage
 ) { }

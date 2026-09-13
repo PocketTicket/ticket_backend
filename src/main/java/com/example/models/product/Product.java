@@ -12,7 +12,9 @@ public record Product(
         LocalDateTime startsAt,
         int maxTickets,
         // Tickets held by pending and paid orders.
-        int allocatedTickets
+        int allocatedTickets,
+        // Whether a picture was uploaded. The picture itself is loaded separately.
+        boolean hasImage
 ) {
     /** Never negative, even if an admin lowered maxTickets below what is already allocated. */
     public int availableTickets() {

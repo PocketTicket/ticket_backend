@@ -19,4 +19,12 @@ public record Order(
     public BigDecimal total() {
         return tickets.stream().map(Ticket::price).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
+
+    /**
+     * The status the customer sees. After the due date an unpaid order counts as cancelled
+     * for them, even though the admin still has one more day to confirm a late payment.
+     */
+    public OrderStatus customerStatus(LocalDateTime now) {
+        return status == OrderStatus.PENDING && now.isAfter(paymentDueAt) ? OrderStatus.CANCELLED : status;
+    }
 }

@@ -1,8 +1,10 @@
 package com.example.mapper;
 
+import com.example.dto.product.ProductImageResponse;
 import com.example.dto.product.ProductRequest;
 import com.example.dto.product.ProductResponse;
 import com.example.models.product.Product;
+import com.example.models.product.ProductImage;
 
 import java.util.List;
 
@@ -11,7 +13,7 @@ public final class ProductMapper {
     private ProductMapper() {
     }
 
-    /** allocatedTickets is not client input; the repository never writes it from here. */
+    /** allocatedTickets and hasImage are not client input; the repository never writes them from here. */
     public static Product toModel(int productId, ProductRequest request) {
         return new Product(
                 productId,
@@ -21,7 +23,8 @@ public final class ProductMapper {
                 request.location(),
                 request.startsAt(),
                 request.maxTickets(),
-                0
+                0,
+                false
         );
     }
 
@@ -34,11 +37,16 @@ public final class ProductMapper {
                 product.location(),
                 product.startsAt(),
                 product.maxTickets(),
-                product.availableTickets()
+                product.availableTickets(),
+                product.hasImage()
         );
     }
 
     public static List<ProductResponse> toResponses(List<Product> products) {
         return products.stream().map(ProductMapper::toResponse).toList();
+    }
+
+    public static ProductImageResponse toImageResponse(ProductImage image) {
+        return new ProductImageResponse(image.contentType(), image.data());
     }
 }

@@ -1,5 +1,6 @@
 package com.example.security;
 
+import com.example.models.admin.Admin;
 import com.example.repository.AdminRepository;
 import io.quarkus.elytron.security.common.BcryptUtil;
 import io.quarkus.security.AuthenticationFailedException;
@@ -21,7 +22,11 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class AdminPasswordProvider implements IdentityProvider<UsernamePasswordAuthenticationRequest> {
 
+    /** Access to the admin panel. Only given once the admin finished the first-login setup. */
     public static final String ADMIN_ROLE = "admin";
+
+    /** Access to the own account (see AdminController). Given to every logged-in admin. */
+    public static final String ACCOUNT_ROLE = "admin-account";
 
     @Inject
     AdminRepository adminRepository;
@@ -36,20 +41,24 @@ public class AdminPasswordProvider implements IdentityProvider<UsernamePasswordA
                                               AuthenticationRequestContext context) {
         // runBlocking, because jOOQ talks to the database with blocking JDBC.
         return context.runBlocking(() -> {
-            String hash = adminRepository.getPasswordHash(request.getUsername());
+            Admin admin = adminRepository.getAdminByUsername(request.getUsername());
             String password = new String(request.getPassword().getPassword());
 
-            if (hash == null || !BcryptUtil.matches(password, hash)) {
+            if (admin == null || !BcryptUtil.matches(password, admin.passwordHash())) {
                 throw new AuthenticationFailedException();
             }
-            return adminIdentity(request.getUsername());
+            return adminIdentity(admin);
         });
     }
 
-    static SecurityIdentity adminIdentity(String username) {
-        return QuarkusSecurityIdentity.builder()
-                .setPrincipal(new QuarkusPrincipal(username))
-                .addRole(ADMIN_ROLE)
-                .build();
+    static SecurityIdentity adminIdentity(Admin admin) {
+        QuarkusSecurityIdentity.Builder identity = QuarkusSecurityIdentity.builder()
+                .setPrincipal(new QuarkusPrincipal(admin.username()))
+                .addRole(ACCOUNT_ROLE);
+
+        if (!admin.setupRequired()) {
+            identity.addRole(ADMIN_ROLE);
+        }
+        return identity.build();
     }
 }

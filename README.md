@@ -6,7 +6,9 @@ PostgreSQL. How it works is described in [documentation.md](documentation.md).
 ## Running locally
 
 1. Copy `.env.example` to `.env` and fill in the values. `.env` holds everything secret
-   (database password, admin login, bank account) and is never committed.
+   (database password, cookie key, bank account) and is never committed.
+   The admin panel login of a fresh installation is `admin` / `admin`; the first login
+   asks for a personal password and an email address.
 2. Start the database: `docker compose up -d db`
 3. Start the app: `./mvnw quarkus:dev`
 

@@ -1,10 +1,12 @@
 package com.example.service;
 
+import com.example.dto.product.ProductImageResponse;
 import com.example.dto.product.ProductRequest;
 import com.example.dto.product.ProductResponse;
 import com.example.exception.ResourceNotFoundException;
 import com.example.mapper.ProductMapper;
 import com.example.models.product.Product;
+import com.example.models.product.ProductImage;
 import com.example.repository.ProductRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,12 +25,7 @@ public class ProductService {
     }
 
     public ProductResponse getProductById(int productId) {
-        Product product = productRepository.getProductById(productId);
-
-        if (product == null) {
-            throw new ResourceNotFoundException("No product with id " + productId);
-        }
-        return ProductMapper.toResponse(product);
+        return ProductMapper.toResponse(findProduct(productId));
     }
 
     public ProductResponse createProduct(ProductRequest request) {
@@ -43,5 +40,36 @@ public class ProductService {
             throw new ResourceNotFoundException("No product with id " + productId);
         }
         return ProductMapper.toResponse(updated);
+    }
+
+    /**
+     * @throws ResourceNotFoundException if the product has no picture.
+     */
+    public ProductImageResponse getImage(int productId) {
+        ProductImage image = productRepository.getImage(productId);
+
+        if (image == null) {
+            throw new ResourceNotFoundException("Product " + productId + " has no image");
+        }
+        return ProductMapper.toImageResponse(image);
+    }
+
+    /**
+     * Stores the picture of a product, replacing any previous one.
+     *
+     * @throws ResourceNotFoundException if no product has that id.
+     */
+    public void saveImage(int productId, String contentType, byte[] data) {
+        findProduct(productId);
+        productRepository.saveImage(productId, new ProductImage(contentType, data));
+    }
+
+    private Product findProduct(int productId) {
+        Product product = productRepository.getProductById(productId);
+
+        if (product == null) {
+            throw new ResourceNotFoundException("No product with id " + productId);
+        }
+        return product;
     }
 }

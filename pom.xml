@@ -97,6 +97,11 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-mailer</artifactId>
         </dependency>
+        <!-- Cancels orders that were not paid in time -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>core</artifactId>
