@@ -2,6 +2,7 @@ package com.example.service;
 
 import com.example.dto.admin.AdminAccountRequest;
 import com.example.dto.admin.AdminResponse;
+import com.example.dto.admin.DoorStaffPasswordRequest;
 import com.example.exception.InvalidRequestException;
 import com.example.mapper.AdminMapper;
 import com.example.models.admin.Admin;
@@ -36,5 +37,10 @@ public class AdminService {
 
         adminRepository.updateAccount(username, BcryptUtil.bcryptHash(request.newPassword()), request.email());
         return getAdmin(username);
+    }
+
+    /** Sets the password of the account all door staff share. */
+    public void updateDoorStaffPassword(DoorStaffPasswordRequest request) {
+        adminRepository.updateDoorStaffPassword(BcryptUtil.bcryptHash(request.password()));
     }
 }

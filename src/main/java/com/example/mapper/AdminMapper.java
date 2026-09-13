@@ -10,6 +10,6 @@ public final class AdminMapper {
 
     /** The password hash is left out on purpose. */
     public static AdminResponse toResponse(Admin admin) {
-        return new AdminResponse(admin.username(), admin.email(), admin.setupRequired());
+        return new AdminResponse(admin.username(), admin.role(), admin.email(), admin.setupRequired());
     }
 }

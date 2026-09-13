@@ -112,7 +112,7 @@ public class OrderService {
 
         // Ordered on 01.09 with 7 payment days: the customer has until 08.09 at midnight.
         LocalDateTime paymentDueAt = LocalDate.now()
-                .plusDays(settingsRepository.getPaymentDays())
+                .plusDays(settingsRepository.getSettings().paymentDays())
                 .atTime(23, 59, 59);
 
         Order order = orderRepository.createOrder(new Order(

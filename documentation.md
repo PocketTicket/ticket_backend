@@ -16,6 +16,7 @@ see a model, repositories never see a DTO; the conversion happens in `com.exampl
 3. An admin finds the order in the order list and confirms the transfer
    (`PATCH /orders/{orderId}/payment`). The order becomes `PAID` and the customer gets an
    email with one QR code per ticket.
+4. At the entrance, door staff scan the QR code and the ticket is used up (see Entrance).
 
 ## Payment deadline
 
@@ -32,6 +33,33 @@ Even a cancelled order can still be confirmed by the admin, as long as enough ti
 left: they are allocated again, otherwise the answer is 409. A changed number of payment
 days applies to orders placed afterwards; existing orders keep the due date their
 customers were already emailed.
+
+## Entrance
+
+A ticket's QR code opens the website at `/tickets/{code}`. The page first asks
+`GET /admin/me` (with credentials):
+
+- **Door staff** are logged in with the shared door staff account (or as an admin with the
+  setup done). The page calls `POST /tickets/{code}/check-in`, which lets the guest in and
+  uses the ticket up if it is valid right now.
+- **Everyone else**, e.g. a customer checking their own ticket, gets `GET /tickets/{code}`.
+  It shows the same state but never uses the ticket up, so a photographed or self-scanned
+  QR code cannot invalidate a ticket.
+
+Both answer 200 with `result` and, for a known code, `productName`, `location`,
+`startsAt`, `entryFrom` and `usedAt`:
+
+| result | meaning | the page shows |
+| --- | --- | --- |
+| `ADMITTED` | door check only: was valid, is now used up | let the guest in |
+| `VALID` | paid, unused, entry is open | the ticket is valid |
+| `NOT_YET_OPEN` | paid and unused, entry opens at `entryFrom` | start time and location of the event |
+| `ALREADY_USED` | somebody entered with it at `usedAt` | the ticket was already used |
+| `INVALID` | unknown code (all other fields null), or its order is not paid | the ticket is not valid |
+
+Entry opens `entryMinutesBeforeStart` minutes (admin setting, default 0) before the event
+starts. A ticket can be used exactly once: the UPDATE that uses it up only succeeds while it
+is still unused, so two scanners at the same moment cannot both admit the same ticket.
 
 ## Customers
 
@@ -54,7 +82,8 @@ customers were already emailed.
   order number (the reference of the bank transfer), or any part of the customer's full
   name or email, ignoring case. `status` is `PENDING`, `PAID` or `CANCELLED` as stored, so
   an order in its extra day is still `PENDING` here. Both are optional.
-- **Settings:** `GET /settings` and `PUT /settings` with `paymentDays` (1 to 365).
+- **Settings:** `GET /settings` and `PUT /settings` with `paymentDays` (1 to 365) and
+  `entryMinutesBeforeStart` (0 to 1440; how long before an event's start the entrance opens).
 
 ## Logins
 
@@ -73,7 +102,7 @@ Admin-only endpoints answer 401 without login.
 ### First admin login
 
 A fresh installation creates the admin account `admin` with the password `admin` on
-startup (whenever no admin exists at all).
+startup (whenever no admin exists).
 
 1. The admin logs in with `admin` / `admin`.
 2. `GET /admin/me` answers `"setupRequired": true`. Until the setup is done, every admin
@@ -86,6 +115,17 @@ startup (whenever no admin exists at all).
 The same endpoint changes password and email address later. Forgotten password: delete
 the admin from the `admins` table and restart, then the default account is created again.
 
+### Door staff
+
+All door staff share one account, `einlass` with the password `einlass`, created on startup
+whenever no door staff account exists. They log in on the same login form, on as many phones
+at once as needed. The account can only check tickets in (`POST /tickets/{code}/check-in`),
+see itself (`GET /admin/me`, `"role": "DOOR_STAFF"`) and log out; everything else answers 403,
+including changing its own password. So its login may be known to every helper. The admin
+can change the password with `PUT /admin/door-staff-password` `{ "password": "..." }`
+(8 to 72 characters), e.g. before the event or if the login spread further than intended.
+A login stays valid for 30 minutes without requests; every scan renews it.
+
 **Not done yet:** until the SSO is connected, `security/CurrentUser` reads the customer
 from the headers `X-User-Subject`, `X-User-Email`, `X-User-First-Name` and
 `X-User-Last-Name`. Anyone can send these, so this has to be replaced before going live.
@@ -93,8 +133,9 @@ from the headers `X-User-Subject`, `X-User-Email`, `X-User-First-Name` and
 ## Tables
 
 - **users**: customers from the SSO (subject, email, first and last name).
-- **admins**: username, bcrypt password hash and contact email address. The email is
-  NULL until the admin finished the first-login setup.
+- **admins**: the accounts of the login form: username, role (`ADMIN` or `DOOR_STAFF`),
+  bcrypt password hash and contact email address. The email is NULL until an admin finished
+  the first-login setup, and always NULL for the door staff account.
 - **products**: a ticket type: name, description, price, location, start time and the
   maximum number of tickets. `allocated_tickets` counts the tickets of pending and paid
   orders; it is raised with a single conditional UPDATE, so the last ticket cannot be
@@ -106,7 +147,8 @@ from the headers `X-User-Subject`, `X-User-Email`, `X-User-First-Name` and
   previous status in the same UPDATE, so paying and cancelling cannot overlap.
 - **tickets**: one row per person, so 3 x A and 2 x B are 5 rows; the API groups them back
   into items. Each row stores its product, the price at order time and a random code
-  (144 bits, Base64url) that cannot be guessed.
+  (144 bits, Base64url) that cannot be guessed. `used_at` is set when the ticket is used
+  at the entrance.
 - **settings**: exactly one row with the settings of the admin panel.
 
 A ticket's QR code holds the link `{ticket.frontend-url}/tickets/{code}`, so scanning it
@@ -128,15 +170,19 @@ opens the website.
 | GET | /orders?search=&status= | admin | order list, newest first |
 | GET | /orders/{orderId} | admin | one order |
 | PATCH | /orders/{orderId}/payment | admin | confirm payment and send tickets (409 if already paid or too few tickets left) |
+| GET | /tickets/{code} | everyone | state of a ticket, never uses it up |
+| POST | /tickets/{code}/check-in | door staff, admin | door check, uses the ticket up if valid |
 | GET | /settings | admin | the settings |
 | PUT | /settings | admin | change the settings |
 | POST | /admin/login | everyone | admin login (form fields, see above) |
-| GET | /admin/me | admin, also before setup | the logged-in admin, incl. `setupRequired` |
+| GET | /admin/me | door staff, admin (also before setup) | the logged-in account, incl. `role` and `setupRequired` |
 | PUT | /admin/account | admin, also before setup | set a new password and the email address |
-| POST | /admin/logout | admin, also before setup | log out (204) |
+| PUT | /admin/door-staff-password | admin | set the password of the door staff account (204) |
+| POST | /admin/logout | door staff, admin (also before setup) | log out (204) |
 
 Errors come back as `ErrorResponse`: 400 invalid input (e.g. wrong current password),
-401 not logged in, 403 admin setup not done yet, 404 unknown id, 409 business rule
+401 not logged in, 403 not allowed (door staff account, or admin setup not done yet),
+404 unknown id, 409 business rule
 violated. Failed bean validation also answers 400.
 
 Example bodies:
@@ -150,7 +196,7 @@ POST /orders
 { "items": [ { "productId": 1, "quantity": 3 }, { "productId": 2, "quantity": 2 } ] }
 
 PUT /settings
-{ "paymentDays": 7 }
+{ "paymentDays": 7, "entryMinutesBeforeStart": 60 }
 ```
 
 ## Configuration
